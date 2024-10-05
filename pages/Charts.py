@@ -34,6 +34,13 @@ def get_twse_stock_ids(URLs):
 
 
 
+def reform_stock_infos(Data):
+    return f"{Data['有價證券名稱']} ({Data.name})" \
+    if pd.isna(Data['產業別']) \
+    else f"{Data['有價證券名稱']} ({Data.name})"
+
+
+
 def get_stock_id_input(Text):
     match = re.search(r'\((.*?)\)', Text)
 
@@ -41,17 +48,7 @@ def get_stock_id_input(Text):
         return match.group(1)
     else:
         return "沒有找到括號內的內容"
-
-
-
-def reform_stock_infos(Data):
-    return f"{Data['有價證券名稱']} ({Data.name})" \
-    if pd.isna(Data['產業別']) \
-    else f"{Data['有價證券名稱']} ({Data.name})"
-    # return f"{Data['有價證券名稱']} ({Data.name}) - {Data['市場別']}" \
-    # if pd.isna(Data['產業別']) \
-    # else f"{Data['有價證券名稱']} ({Data.name}) - {Data['市場別']} - {Data['產業別']}"
-
+    
 
 
 def get_yfinance_suffix(Symbol):

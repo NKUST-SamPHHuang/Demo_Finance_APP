@@ -1,8 +1,11 @@
 # 自選投資組合
 
+import re
 import time
+import requests
 import pandas as pd
 import streamlit as st
+from io import StringIO
 from modules.nav import Navbar
 
 
@@ -10,6 +13,44 @@ from modules.nav import Navbar
 # 導覽頁面
 def main():
     Navbar()
+
+
+
+@st.cache_data
+def get_twse_stock_ids(URLs):
+
+    result = []
+    for url in URLs:
+        res = requests.get(url)
+        text = StringIO(res.text)
+        df = pd.read_html(text)[0]
+        df.columns = df.iloc[0]
+        df = df.iloc[1:]
+        result.append(df)
+    
+    
+    all_df = pd.concat(result)
+    all_df = all_df.set_index('有價證券代號')
+    all_df = all_df.sort_index()
+
+    return all_df
+
+
+
+def reform_stock_infos(Data):
+    return f"{Data['有價證券名稱']} ({Data.name})" \
+    if pd.isna(Data['產業別']) \
+    else f"{Data['有價證券名稱']} ({Data.name})"
+
+
+
+def get_stock_id_input(Text):
+    match = re.search(r'\((.*?)\)', Text)
+
+    if match:
+        return match.group(1)
+    else:
+        return "沒有找到括號內的內容"
 
 
 
@@ -32,6 +73,19 @@ todo_list = [
 ]
 st.header('待辦事項')
 st.table(todo_list)
+
+
+
+# 建立股票名單後，用以放到 selectbox
+urls = [
+    "https://isin.twse.com.tw/isin/class_main.jsp?owncode=&stockname=&isincode=&market=1&issuetype=1&industry_code=&Page=1&chklike=Y",
+    "https://isin.twse.com.tw/isin/class_main.jsp?owncode=&stockname=&isincode=&market=2&issuetype=4&industry_code=&Page=1&chklike=Y",
+    "https://isin.twse.com.tw/isin/class_main.jsp?owncode=&stockname=&isincode=&market=1&issuetype=I&industry_code=&Page=1&chklike=Y",
+    "https://isin.twse.com.tw/isin/class_main.jsp?owncode=&stockname=&isincode=&market=2&issuetype=3&industry_code=&Page=1&chklike=Y",
+]
+stock_id_df = get_twse_stock_ids(urls)
+data_list = stock_id_df.apply(lambda row: reform_stock_infos(row), axis=1).values
+
 
 
 # 初始化 Session 狀態中的股票清單
@@ -59,14 +113,20 @@ with tab1:
 # 分頁 2：新增股票功能
 with tab2:
     st.subheader("新增股票")
-    stock_code = st.text_input("股票代號", key="stock_code")
+    stock_code = st.selectbox(
+            label='股票名稱與代號：',
+            options=data_list,
+            key='stock_code',
+            index=None,
+            placeholder="選取股票...",
+        )
     entry_date = st.date_input("進場日期", value=date.today(), key="entry_date")
     entry_price = st.number_input("進場成本", min_value=0.0, format="%.2f", key="entry_price")
 
     if st.button("新增股票"):
         if stock_code and entry_price > 0:
             new_entry = pd.DataFrame({
-                '股票代號': [stock_code],
+                '股票代號': [get_stock_id_input(stock_code)],
                 '進場日期': [entry_date],
                 '進場成本': [entry_price]
             })
