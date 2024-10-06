@@ -2,53 +2,16 @@
 
 import re
 import time
-import requests
+import numpy as np
 import pandas as pd
 import yfinance as yf
 import streamlit as st
 import plotly.graph_objects as go
-from io import StringIO
 from modules.nav import Navbar
+from modules.stock_ids import get_twse_stock_ids, reform_stock_infos, get_stock_id_input
+from modules.write_table import show_list
 from plotly.subplots import make_subplots
 
-
-
-@st.cache_data
-def get_twse_stock_ids(URLs):
-
-    result = []
-    for url in URLs:
-        res = requests.get(url)
-        text = StringIO(res.text)
-        df = pd.read_html(text)[0]
-        df.columns = df.iloc[0]
-        df = df.iloc[1:]
-        result.append(df)
-    
-    
-    all_df = pd.concat(result)
-    all_df = all_df.set_index('有價證券代號')
-    all_df = all_df.sort_index()
-
-    return all_df
-
-
-
-def reform_stock_infos(Data):
-    return f"{Data['有價證券名稱']} ({Data.name})" \
-    if pd.isna(Data['產業別']) \
-    else f"{Data['有價證券名稱']} ({Data.name})"
-
-
-
-def get_stock_id_input(Text):
-    match = re.search(r'\((.*?)\)', Text)
-
-    if match:
-        return match.group(1)
-    else:
-        return "沒有找到括號內的內容"
-    
 
 
 def get_yfinance_suffix(Symbol):
@@ -106,43 +69,103 @@ def main():
 st.set_page_config(page_title='股價繪圖',  layout='wide')
 
 
+
+header = "待辦事項"
+todo_list = [
+    ""
+]
+show_list(header, todo_list)
+
+
+
+# 建立股票名單後，用以放到 selectbox
+# 股票名單來源：
+# 證交所證券編碼查詢： https://isin.twse.com.tw/isin/class_i.jsp?kind=1
+urls = [
+    "https://isin.twse.com.tw/isin/class_main.jsp?owncode=&stockname=&isincode=&market=1&issuetype=1&industry_code=&Page=1&chklike=Y",
+    "https://isin.twse.com.tw/isin/class_main.jsp?owncode=&stockname=&isincode=&market=2&issuetype=4&industry_code=&Page=1&chklike=Y",
+    "https://isin.twse.com.tw/isin/class_main.jsp?owncode=&stockname=&isincode=&market=1&issuetype=I&industry_code=&Page=1&chklike=Y",
+    "https://isin.twse.com.tw/isin/class_main.jsp?owncode=&stockname=&isincode=&market=2&issuetype=3&industry_code=&Page=1&chklike=Y",
+]
+stock_ids_df = get_twse_stock_ids(urls)
+
+
+
 col_a1 = st.columns(1)
 container_a1 = col_a1[0].container(border=True)
 with container_a1:
     # 版面設計
-    col_b1, col_b2, col_b3 = st.columns([1, 3, 1], vertical_alignment="bottom")
+    col_b1, col_b2, col_b3, col_b4, col_b5, col_b6 = st.columns([1.5, 1.5, 3, 2.5, 3, 1], vertical_alignment="bottom")
 
-
-
-    # 建立股票名單後，用以放到 selectbox
-    urls = [
-        "https://isin.twse.com.tw/isin/class_main.jsp?owncode=&stockname=&isincode=&market=1&issuetype=1&industry_code=&Page=1&chklike=Y",
-        "https://isin.twse.com.tw/isin/class_main.jsp?owncode=&stockname=&isincode=&market=2&issuetype=4&industry_code=&Page=1&chklike=Y",
-        "https://isin.twse.com.tw/isin/class_main.jsp?owncode=&stockname=&isincode=&market=1&issuetype=I&industry_code=&Page=1&chklike=Y",
-        "https://isin.twse.com.tw/isin/class_main.jsp?owncode=&stockname=&isincode=&market=2&issuetype=3&industry_code=&Page=1&chklike=Y",
-    ]
-    stock_id_df = get_twse_stock_ids(urls)
-    data_list = stock_id_df.apply(lambda row: reform_stock_infos(row), axis=1).values
-    
 
 
     # 建立選股清單: SelectBox
     with col_b1:
-        st.selectbox(
-            label='股票名稱與代號：',
-            options=data_list,
+        # 第1個下拉清單: 市場別
+        市場別_options = ['ALL'] + list(stock_ids_df['市場別'].unique())
+        市場別選擇 = st.selectbox(
+            label='選擇市場別',
+            options=市場別_options,
+            key='listed_id',
+            index=None,
+            placeholder="選取市場別...",
+        )
+
+        # 根據市場別選擇過濾資料清單
+        filtered_data = stock_ids_df if 市場別選擇 == 'ALL' else stock_ids_df[stock_ids_df['市場別'] == 市場別選擇]
+
+
+
+    with col_b2:
+        # 第2個下拉清單: 有價證券別
+        有價證券別_options = ['ALL'] + list(filtered_data['有價證券別'].dropna().unique())
+        有價證券別選擇 = st.selectbox(
+            label='選擇有價證券別',
+            options=有價證券別_options,
+            key='category_id',
+            index=None,
+            placeholder="有價證券別...",
+        )
+
+        # 根據市場別和有價證券別選擇過濾資料清單
+        filtered_data = filtered_data if 有價證券別選擇 == 'ALL' or pd.isna(有價證券別選擇) else filtered_data[filtered_data['有價證券別'] == 有價證券別選擇]
+
+
+
+    with col_b3:
+        # 第3個下拉清單: 產業別
+        產業別_options = ['ALL'] + list(filtered_data['產業別'].dropna().unique())
+        產業別選擇 = st.selectbox(
+            label='選擇產業別',
+            options=產業別_options,
+            key='industry_id',
+            index=None,
+            placeholder="選取產業別...",
+        )
+
+        # 根據市場別、有價證券別和產業別選擇過濾資料清單
+        filtered_data = filtered_data if 產業別選擇 == 'ALL' or pd.isna(產業別選擇) else filtered_data[filtered_data['產業別'] == 產業別選擇]
+
+
+
+    with col_b4:
+        # 第4個下拉清單: 股票名稱與代號
+        股票名稱_options = filtered_data.apply(lambda row: reform_stock_infos(row), axis=1).values
+        股票名稱選擇 = st.selectbox(
+            label='選擇股票名稱與代號',
+            options=股票名稱_options,
             key='stock_id',
             index=None,
-            placeholder="選取股票...",
+            placeholder="選取股票名稱與代號...",
         )
-        
+
 
 
     # 建立選時清單: Radio
-    with col_b2:
+    with col_b5:
         time_list = ['本年至今', '近1個月', '近3個月', '近6個月', '近1年', '近2年', '近5年']
         selected_time = st.radio(
-            "選擇週期",
+            "選擇週期：",
             options=range(len(time_list)),
             format_func=lambda x: time_list[x],
             horizontal=True,
@@ -152,7 +175,7 @@ with container_a1:
 
 
     # 建立執行按鈕: Button
-    with col_b3:
+    with col_b6:
         button_clicked = st.button(label='執行', use_container_width=True)
 
 
@@ -257,5 +280,6 @@ with container_a1:
 
 if __name__ == '__main__':
     main()
+
 
 

@@ -2,55 +2,17 @@
 
 import re
 import time
-import requests
 import pandas as pd
 import streamlit as st
-from io import StringIO
 from modules.nav import Navbar
+from modules.stock_ids import get_twse_stock_ids, reform_stock_infos, get_stock_id_input
+from modules.write_table import show_list
 
 
 
 # 導覽頁面
 def main():
     Navbar()
-
-
-
-@st.cache_data
-def get_twse_stock_ids(URLs):
-
-    result = []
-    for url in URLs:
-        res = requests.get(url)
-        text = StringIO(res.text)
-        df = pd.read_html(text)[0]
-        df.columns = df.iloc[0]
-        df = df.iloc[1:]
-        result.append(df)
-    
-    
-    all_df = pd.concat(result)
-    all_df = all_df.set_index('有價證券代號')
-    all_df = all_df.sort_index()
-
-    return all_df
-
-
-
-def reform_stock_infos(Data):
-    return f"{Data['有價證券名稱']} ({Data.name})" \
-    if pd.isna(Data['產業別']) \
-    else f"{Data['有價證券名稱']} ({Data.name})"
-
-
-
-def get_stock_id_input(Text):
-    match = re.search(r'\((.*?)\)', Text)
-
-    if match:
-        return match.group(1)
-    else:
-        return "沒有找到括號內的內容"
 
 
 
@@ -65,26 +27,27 @@ from datetime import date
 
 
 
+header = "待辦事項"
 todo_list = [
     '1. 雲端儲存',
     '2. 雲端讀取',
     '3. 確認使用者',
     '4. 依使用者權限存取',
 ]
-st.header('待辦事項')
-st.table(todo_list)
+show_list(header, todo_list)
 
 
 
 # 建立股票名單後，用以放到 selectbox
+# 股票名單來源：
+# 證交所證券編碼查詢： https://isin.twse.com.tw/isin/class_i.jsp?kind=1
 urls = [
     "https://isin.twse.com.tw/isin/class_main.jsp?owncode=&stockname=&isincode=&market=1&issuetype=1&industry_code=&Page=1&chklike=Y",
     "https://isin.twse.com.tw/isin/class_main.jsp?owncode=&stockname=&isincode=&market=2&issuetype=4&industry_code=&Page=1&chklike=Y",
     "https://isin.twse.com.tw/isin/class_main.jsp?owncode=&stockname=&isincode=&market=1&issuetype=I&industry_code=&Page=1&chklike=Y",
     "https://isin.twse.com.tw/isin/class_main.jsp?owncode=&stockname=&isincode=&market=2&issuetype=3&industry_code=&Page=1&chklike=Y",
 ]
-stock_id_df = get_twse_stock_ids(urls)
-data_list = stock_id_df.apply(lambda row: reform_stock_infos(row), axis=1).values
+stock_ids_df = get_twse_stock_ids(urls)
 
 
 
@@ -113,12 +76,60 @@ with tab1:
 # 分頁 2：新增股票功能
 with tab2:
     st.subheader("新增股票")
-    stock_code = st.selectbox(
-            label='股票名稱與代號：',
-            options=data_list,
+    # 版面設計
+    col_b1, col_b2, col_b3, col_b4 = st.columns([1, 1, 1, 1], vertical_alignment="bottom")
+    # 建立選股清單: SelectBox
+    with col_b1:
+        # 第1個下拉清單: 市場別
+        市場別_options = ['ALL'] + list(stock_ids_df['市場別'].unique())
+        市場別選擇 = st.selectbox(
+            label='選擇市場別',
+            options=市場別_options,
+            key='listed_id',
+            index=None,
+            placeholder="選取市場別...",
+        )
+
+        # 根據市場別選擇過濾資料清單
+        filtered_data = stock_ids_df if 市場別選擇 == 'ALL' else stock_ids_df[stock_ids_df['市場別'] == 市場別選擇]
+
+    with col_b2:
+        # 第2個下拉清單: 有價證券別
+        有價證券別_options = ['ALL'] + list(filtered_data['有價證券別'].dropna().unique())
+        有價證券別選擇 = st.selectbox(
+            label='選擇有價證券別',
+            options=有價證券別_options,
+            key='category_id',
+            index=None,
+            placeholder="有價證券別...",
+        )
+
+        # 根據市場別和有價證券別選擇過濾資料清單
+        filtered_data = filtered_data if 有價證券別選擇 == 'ALL' or pd.isna(有價證券別選擇) else filtered_data[filtered_data['有價證券別'] == 有價證券別選擇]
+
+    with col_b3:
+        # 第3個下拉清單: 產業別
+        產業別_options = ['ALL'] + list(filtered_data['產業別'].dropna().unique())
+        產業別選擇 = st.selectbox(
+            label='選擇產業別',
+            options=產業別_options,
+            key='industry_id',
+            index=None,
+            placeholder="選取產業別...",
+        )
+
+        # 根據市場別、有價證券別和產業別選擇過濾資料清單
+        filtered_data = filtered_data if 產業別選擇 == 'ALL' or pd.isna(產業別選擇) else filtered_data[filtered_data['產業別'] == 產業別選擇]
+
+    with col_b4:
+        # 第4個下拉清單: 股票名稱與代號
+        股票名稱_options = filtered_data.apply(lambda row: reform_stock_infos(row), axis=1).values
+        stock_code = st.selectbox(
+            label='選擇股票名稱與代號',
+            options=股票名稱_options,
             key='stock_code',
             index=None,
-            placeholder="選取股票...",
+            placeholder="選取股票名稱與代號...",
         )
     entry_date = st.date_input("進場日期", value=date.today(), key="entry_date")
     entry_price = st.number_input("進場成本", min_value=0.0, format="%.2f", key="entry_price")
